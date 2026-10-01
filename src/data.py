@@ -7,7 +7,10 @@ that the model can eat.
 Run `pytest tests/test_data.py` after you fill them in.
 """
 
+from pathlib import Path
+
 import numpy as np
+from PIL import Image
 
 # Files with any other extension should be ignored.
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -50,7 +53,18 @@ def prepare_image(image):
     The web page does these same six steps in JavaScript. If your version is
     different, the self test badge at the top of your page turns red.
     """
-    raise NotImplementedError("Problem 2: fill in prepare_image")
+    # Step 1: Convert to RGB
+    image = image.convert("RGB")
+
+    # Steps 2-6 using torchvision transforms
+    from torchvision.transforms import CenterCrop, Compose, Normalize, Resize, ToTensor
+    transform = Compose([
+        Resize(RESIZE, interpolation=Image.BILINEAR),
+        CenterCrop(CROP),
+        ToTensor(),
+        Normalize(mean=MEAN, std=STD),
+    ])
+    return transform(image).numpy().astype(np.float32)
 
 
 def load_folder(root):
@@ -83,7 +97,34 @@ def load_folder(root):
     Memory: every image becomes 3 x 224 x 224 numbers of 4 bytes, about 0.6 MB.
     750 images is about 450 MB. That fits on Colab and on most laptops.
     """
-    raise NotImplementedError("Problem 2: fill in load_folder")
+    root = Path(root)
+    class_dirs = sorted(d for d in root.iterdir() if d.is_dir())
+    class_names = sorted(d.name for d in class_dirs)
+
+    X_list = []
+    y_list = []
+    paths_list = []
+
+    for class_index, class_name in enumerate(class_names):
+        class_dir = root / class_name
+        files = sorted(
+            f for f in class_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in IMAGE_SUFFIXES
+        )
+        for f in files:
+            try:
+                image = Image.open(f)
+                prepared = prepare_image(image)
+                X_list.append(prepared)
+                y_list.append(class_index)
+                paths_list.append(f)
+            except Exception:
+                # Skip broken files
+                continue
+
+    X = np.stack(X_list).astype(np.float32)
+    y = np.array(y_list, dtype=np.int64)
+    return X, y, class_names, paths_list
 
 
 def split_train_test(X, y, paths, test_ratio=0.2, seed=0):
@@ -102,4 +143,25 @@ def split_train_test(X, y, paths, test_ratio=0.2, seed=0):
         up with a class that has no test images at all, and then your accuracy
         number means nothing.
     """
-    raise NotImplementedError("Problem 2: fill in split_train_test")
+    rng = np.random.default_rng(seed)
+    n = len(X)
+    indices = np.arange(n)
+
+    # Stratified split: for each class, put test_ratio of its rows into test
+    train_indices = []
+    test_indices = []
+
+    classes = np.unique(y)
+    for cls in classes:
+        cls_mask = y == cls
+        cls_indices = indices[cls_mask].tolist()
+        rng.shuffle(cls_indices)
+        n_test = max(1, int(round(len(cls_indices) * test_ratio)))
+        test_indices.extend(cls_indices[:n_test])
+        train_indices.extend(cls_indices[n_test:])
+
+    train_indices = np.array(sorted(train_indices))
+    test_indices = np.array(sorted(test_indices))
+
+    return (X[train_indices], y[train_indices], [paths[i] for i in train_indices],
+            X[test_indices], y[test_indices], [paths[i] for i in test_indices])

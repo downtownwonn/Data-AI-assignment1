@@ -32,12 +32,25 @@ def predict_logits(model, X, batch_size=64):
     next(model.parameters()).device, and bring the answers back with .cpu().
     Work in batches so that a large test set does not run you out of memory.
     """
-    raise NotImplementedError("Problem 3: fill in predict_logits")
+    device = next(model.parameters()).device
+    model.eval()
+    n = len(X)
+    all_logits = []
+
+    with torch.no_grad():
+        for start in range(0, n, batch_size):
+            X_batch = torch.from_numpy(X[start:start + batch_size]).to(device)
+            logits = model(X_batch)
+            all_logits.append(logits.cpu().numpy())
+
+    return np.concatenate(all_logits, axis=0).astype(np.float32)
 
 
 def accuracy(model, X, y):
     """Return the share of rows the model gets right, as a float 0.0 to 1.0."""
-    raise NotImplementedError("Problem 3: fill in accuracy")
+    logits = predict_logits(model, X)
+    predictions = logits.argmax(axis=1)
+    return float((predictions == y).mean())
 
 
 def confusion_matrix(model, X, y, num_classes):
@@ -47,7 +60,12 @@ def confusion_matrix(model, X, y, num_classes):
     how many images of class i the model called class j. The diagonal is the
     ones it got right.
     """
-    raise NotImplementedError("Problem 3: fill in confusion_matrix")
+    logits = predict_logits(model, X)
+    predictions = logits.argmax(axis=1)
+    matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
+    for true, pred in zip(y, predictions):
+        matrix[true, pred] += 1
+    return matrix
 
 
 def worst_examples(model, X, y, paths, k=10):
@@ -66,7 +84,25 @@ def worst_examples(model, X, y, paths, k=10):
     These are the images to put in your report. A mistake the model was sure
     about tells you much more than a mistake it was unsure about.
     """
-    raise NotImplementedError("Problem 5: fill in worst_examples")
+    logits = predict_logits(model, X)
+    predictions = logits.argmax(axis=1)
+
+    # Apply softmax to get probabilities
+    exp_logits = np.exp(logits - logits.max(axis=1, keepdims=True))
+    probs = exp_logits / exp_logits.sum(axis=1, keepdims=True)
+
+    mistakes = []
+    for i, (true, pred) in enumerate(zip(y, predictions)):
+        if true != pred:
+            mistakes.append({
+                "path": paths[i],
+                "true": int(true),
+                "predicted": int(pred),
+                "confidence": float(probs[i, pred]),
+            })
+
+    mistakes.sort(key=lambda m: m["confidence"], reverse=True)
+    return mistakes[:k]
 
 
 # ---------------------------------------------------------------------------
